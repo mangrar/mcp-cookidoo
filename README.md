@@ -6,8 +6,10 @@ An MCP (Model Context Protocol) server for interacting with the Thermomix Cookid
 
 ## Features
 
-- **Recipe Search**: Find recipes by keywords and/or ingredients, with a maximum total time
+- **Recipe Search**: Find recipes by keywords and/or ingredients, with a maximum total time, and optional multi-language filtering (`es`, `en`, etc.)
 - **Recipe Details**: Fetch ingredients, steps and times of any Cookidoo recipe
+- **Shopping List**: View, add recipes or standalone items, remove items, and clear your Cookidoo shopping list
+- **Meal Planner ("My Week")**: View scheduled meals for the week, and schedule/unschedule recipes
 - **Custom Recipes**: List, read, create and update the recipes on your own account
 - **Guided Cooking**: Steps can carry Thermomix settings (time, temperature, speed, reverse), preset on the machine
 - **Guided Prompt**: `create_thermomix_recipe` walks the assistant through writing a proper Thermomix recipe (EN / FR)
@@ -85,8 +87,16 @@ uv run fastmcp dev inspector fastmcp.json           # MCP Inspector
 | Tool | Description |
 | --- | --- |
 | `connect_to_cookidoo` | Check the configuration / force a fresh login (optional, tools log in automatically) |
-| `search_recipes` | Search recipes by query, ingredients and max total time |
+| `search_recipes` | Search recipes by query, ingredients, max total time and language filters |
 | `get_recipe_details` | Get ingredients, steps and times of a recipe by ID |
+| `get_shopping_list` | View the current Cookidoo shopping list (recipes, ingredients, and additional items) |
+| `add_to_shopping_list` | Add recipe ingredients to the shopping list (supports catalogue `r...` and custom `01...` IDs) |
+| `remove_from_shopping_list` | Remove recipe ingredients from the shopping list |
+| `add_additional_items` | Add standalone grocery items to the shopping list (e.g. "milk", "olive oil") |
+| `clear_shopping_list` | Clear all recipes, ingredients and items from the shopping list |
+| `get_meal_plan` | View meals scheduled in Cookidoo's "My Week" calendar |
+| `schedule_recipe` | Schedule a recipe to a specific date in "My Week" |
+| `unschedule_recipe` | Remove a scheduled recipe from a specific date in "My Week" |
 | `list_custom_recipes` | List the custom recipes on your account |
 | `get_custom_recipe` | Get a custom recipe as editable JSON |
 | `generate_recipe_structure` | Validate a new recipe and return its JSON |

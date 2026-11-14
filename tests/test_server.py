@@ -35,6 +35,15 @@ def service(monkeypatch):
         "get_custom_recipe",
         "create_custom_recipe",
         "update_custom_recipe",
+        "get_shopping_list",
+        "add_recipes_to_shopping_list",
+        "remove_recipes_from_shopping_list",
+        "add_additional_items",
+        "remove_additional_items",
+        "clear_shopping_list",
+        "get_calendar_week",
+        "schedule_recipe",
+        "unschedule_recipe",
     ):
         monkeypatch.setattr(svc, name, AsyncMock())
     monkeypatch.setattr(server, "_cookidoo_service", svc)
@@ -60,13 +69,21 @@ async def test_all_tools_registered():
         "generate_recipe_structure",
         "upload_custom_recipe",
         "update_custom_recipe",
+        "get_shopping_list",
+        "add_to_shopping_list",
+        "remove_from_shopping_list",
+        "add_additional_items",
+        "clear_shopping_list",
+        "get_meal_plan",
+        "schedule_recipe",
+        "unschedule_recipe",
     }
     assert prompts == {"create_thermomix_recipe"}
 
 
 async def test_server_reports_project_version():
     async with Client(server.mcp) as client:
-        assert client.server_info.version == server.VERSION == "1.1.0"
+        assert client.server_info.version == server.VERSION == "1.2.0"
 
 
 async def test_generate_recipe_structure_round_trips_to_upload(service):
@@ -300,3 +317,60 @@ def test_settings_from_env(monkeypatch):
     monkeypatch.delenv("COOKIDOO_PASSWORD")
     with pytest.raises(ValueError, match="Missing"):
         load_cookidoo_settings()
+
+
+async def test_get_shopping_list(service):
+    service.get_shopping_list.return_value = (
+        [SimpleNamespace(name="Tortilla", id="r330045", url="https://cookidoo.es/r330045")],
+        [SimpleNamespace(description="500 g patatas", preparation=None, is_owned=False)],
+        [SimpleNamespace(name="Leche", is_owned=True)],
+    )
+    result = await call("get_shopping_list")
+    assert "Tortilla" in result
+    assert "500 g patatas" in result
+    assert "[ ] 500 g patatas" in result
+    assert "[x] Leche" in result
+
+
+async def test_add_to_shopping_list(service):
+    service.add_recipes_to_shopping_list.return_value = [SimpleNamespace()]
+    result = await call("add_to_shopping_list", recipes="r12345, 01CUSTOM")
+    assert "Successfully added 2 recipe(s)" in result
+    service.add_recipes_to_shopping_list.assert_awaited_once_with(["r12345", "01CUSTOM"])
+
+
+async def test_add_additional_items(service):
+    service.add_additional_items.return_value = [SimpleNamespace(), SimpleNamespace()]
+    result = await call("add_additional_items", items="manzanas\npan")
+    assert "Added 2 item(s)" in result
+    service.add_additional_items.assert_awaited_once_with(["manzanas", "pan"])
+
+
+async def test_clear_shopping_list(service):
+    result = await call("clear_shopping_list")
+    assert "cleared successfully" in result
+    service.clear_shopping_list.assert_awaited_once()
+
+
+async def test_get_meal_plan(service):
+    service.get_calendar_week.return_value = [
+        SimpleNamespace(
+            id="2026-11-16",
+            title="Monday",
+            recipes=[
+                SimpleNamespace(
+                    name="Pisto", is_custom=False, total_time=1200, id="r104953", url="https://cookidoo.es/r104953"
+                )
+            ],
+        ),
+        SimpleNamespace(id="2026-11-17", title="Tuesday", recipes=[]),
+    ]
+    result = await call("get_meal_plan", target_date="2026-11-16")
+    assert "Monday" in result
+    assert "Pisto (20 min)" in result
+    assert "(No recipes scheduled)" in result
+
+
+async def test_schedule_recipe(service):
+    result = await call("schedule_recipe", recipe_id="r12345", date_str="2026-11-16")
+    assert "successfully scheduled for 2026-11-16" in result

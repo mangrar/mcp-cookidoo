@@ -6,15 +6,21 @@ Module to encapsulate all cookidoo-api logic for interacting with the Cookidoo p
 
 import asyncio
 import os
+import re
 from dataclasses import dataclass
+from datetime import date
 
 from aiohttp import ClientSession
 from cookidoo_api import (
     Cookidoo,
+    CookidooAdditionalItem,
+    CookidooCalendarDay,
     CookidooConfig,
     CookidooCreateCustomRecipe,
     CookidooCustomRecipe,
+    CookidooIngredientItem,
     CookidooSearchResult,
+    CookidooShoppingRecipe,
     CookidooShoppingRecipeDetails,
     CookidooUpdateCustomRecipe,
     ThermomixMachineType,
@@ -142,24 +148,38 @@ class CookidooService:
         async with self._lock:
             await self._close_session()
 
+    @staticmethod
+    def _is_catalogue_id(recipe_id: str) -> bool:
+        """Catalogue IDs start with 'r' followed by digits (e.g. 'r55696')."""
+        return re.match(r"^r\d+$", recipe_id.strip()) is not None
+
     async def search_recipes(
         self,
         query: str | None = None,
         ingredients: list[str] | None = None,
         max_total_time: int | None = None,
         max_results: int = 10,
+        languages: list[str] | str | None = None,
     ) -> CookidooSearchResult:
         """
         Search the Cookidoo catalogue. `max_total_time` is in minutes.
 
         Calls the search endpoint directly rather than Cookidoo.search_recipes: the
         API expects one `ingredients` parameter per ingredient (a comma-joined value
-        returns nothing), `limit` rather than `pageSize`, and `languages` to keep
-        results in the account's language.
+        returns nothing), `limit` rather than `pageSize`, and `languages` to filter
+        results by language.
         """
         api = await self.client()
         locale = api.localization.language.split("-")[0]
-        params: list[tuple[str, str]] = [("languages", locale)]
+        if languages:
+            if isinstance(languages, str):
+                lang_list = [l.strip() for l in languages.replace(" ", "").split(",") if l.strip()]
+            else:
+                lang_list = [l.strip() for l in languages if l.strip()]
+        else:
+            lang_list = [locale]
+
+        params: list[tuple[str, str]] = [("languages", lang) for lang in lang_list]
         if query:
             params.append(("query", query))
         params += [("ingredients", ingredient) for ingredient in ingredients or []]
@@ -177,6 +197,85 @@ class CookidooService:
     async def get_recipe_details(self, recipe_id: str) -> CookidooShoppingRecipeDetails:
         api = await self.client()
         return await api.get_recipe_details(recipe_id)
+
+    async def get_shopping_list(
+        self,
+    ) -> tuple[list[CookidooShoppingRecipe], list[CookidooIngredientItem], list[CookidooAdditionalItem]]:
+        """Fetch recipes, ingredient items and additional items on the shopping list."""
+        api = await self.client()
+        recipes = await api.get_shopping_list_recipes()
+        ingredients = await api.get_ingredient_items()
+        additional = await api.get_additional_items()
+        return recipes, ingredients, additional
+
+    async def add_recipes_to_shopping_list(
+        self, recipe_ids: list[str]
+    ) -> list[CookidooIngredientItem]:
+        """Add recipe ingredients to the shopping list (supports catalogue & custom recipe IDs)."""
+        api = await self.client()
+        catalogue_ids = [rid for rid in recipe_ids if self._is_catalogue_id(rid)]
+        custom_ids = [rid for rid in recipe_ids if not self._is_catalogue_id(rid)]
+
+        added: list[CookidooIngredientItem] = []
+        if catalogue_ids:
+            items = await api.add_ingredient_items_for_recipes(catalogue_ids)
+            if items:
+                added.extend(items)
+        if custom_ids:
+            items = await api.add_ingredient_items_for_custom_recipes(custom_ids)
+            if items:
+                added.extend(items)
+        return added
+
+    async def remove_recipes_from_shopping_list(self, recipe_ids: list[str]) -> None:
+        """Remove recipe ingredients from the shopping list."""
+        api = await self.client()
+        catalogue_ids = [rid for rid in recipe_ids if self._is_catalogue_id(rid)]
+        custom_ids = [rid for rid in recipe_ids if not self._is_catalogue_id(rid)]
+
+        if catalogue_ids:
+            await api.remove_ingredient_items_for_recipes(catalogue_ids)
+        if custom_ids:
+            await api.remove_ingredient_items_for_custom_recipes(custom_ids)
+
+    async def add_additional_items(self, item_names: list[str]) -> list[CookidooAdditionalItem]:
+        """Add standalone grocery items to the shopping list."""
+        api = await self.client()
+        return await api.add_additional_items(item_names)
+
+    async def remove_additional_items(self, item_ids: list[str]) -> None:
+        """Remove standalone grocery items from the shopping list."""
+        api = await self.client()
+        await api.remove_additional_items(item_ids)
+
+    async def clear_shopping_list(self) -> None:
+        """Clear all recipes, ingredients and additional items from the shopping list."""
+        api = await self.client()
+        await api.clear_shopping_list()
+
+    async def get_calendar_week(
+        self, day: date | None = None, resolve_custom_recipes: bool = True
+    ) -> list[CookidooCalendarDay]:
+        """Get scheduled recipes for a given calendar week."""
+        api = await self.client()
+        target_day = day or date.today()
+        return await api.get_recipes_in_calendar_week(
+            target_day, resolve_custom_recipes=resolve_custom_recipes
+        )
+
+    async def schedule_recipe(self, day: date, recipe_id: str) -> CookidooCalendarDay:
+        """Schedule a recipe (catalogue or custom) for a specific date in Cookidoo."""
+        api = await self.client()
+        if self._is_catalogue_id(recipe_id):
+            return await api.add_recipes_to_calendar(day, [recipe_id])
+        return await api.add_custom_recipes_to_calendar(day, [recipe_id])
+
+    async def unschedule_recipe(self, day: date, recipe_id: str) -> CookidooCalendarDay:
+        """Remove a scheduled recipe from a specific date in Cookidoo."""
+        api = await self.client()
+        if self._is_catalogue_id(recipe_id):
+            return await api.remove_recipe_from_calendar(day, recipe_id)
+        return await api.remove_custom_recipe_from_calendar(day, recipe_id)
 
     async def list_custom_recipes(self) -> list[CookidooCustomRecipe]:
         api = await self.client()

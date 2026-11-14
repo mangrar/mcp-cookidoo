@@ -9,6 +9,7 @@ import re
 import tomllib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 
 from fastmcp import FastMCP
@@ -41,9 +42,9 @@ mcp = FastMCP(
     "cookidoo-mcp-server",
     version=VERSION,
     instructions=(
-        "Tools for the Thermomix Cookidoo platform: search recipes, read them, and create "
-        "or edit the user's own custom recipes. Always show a recipe to the user and get "
-        "explicit approval before creating or updating it."
+        "Tools for the Thermomix Cookidoo platform: search recipes, read them, create "
+        "or edit custom recipes, manage the shopping list, and plan meals in 'My Week'. "
+        "Always show a custom recipe to the user and get explicit approval before creating or updating it."
     ),
     lifespan=lifespan,
 )
@@ -120,6 +121,7 @@ async def search_recipes(
     ingredients: str = "",
     max_total_time: int | None = None,
     max_results: int = 10,
+    languages: str = "",
 ) -> str:
     """
     Search the Cookidoo recipe catalogue.
@@ -132,6 +134,8 @@ async def search_recipes(
         ingredients: Ingredients that must be used, comma- or newline-separated
         max_total_time: Maximum total time in minutes
         max_results: Maximum number of recipes to return (default: 10)
+        languages: Language code(s) to filter by, comma-separated (e.g. "es", "en", "es,en").
+            Defaults to the account's configured language.
     """
     if not (query or ingredients):
         raise ToolError("Provide a query and/or a list of ingredients.")
@@ -141,6 +145,7 @@ async def search_recipes(
             ingredients=_split_list(ingredients),
             max_total_time=max_total_time,
             max_results=max_results,
+            languages=languages or None,
         )
     except Exception as e:
         raise ToolError(f"Search failed: {e}") from e
@@ -195,6 +200,193 @@ async def get_recipe_details(recipe_id: str) -> str:
         lines += ["", "Notes:", *(f"  - {_strip_markup(note)}" for note in recipe.notes)]
     lines += ["", f"URL: {recipe.url}"]
     return "\n".join(lines)
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def get_shopping_list() -> str:
+    """
+    Get the current Cookidoo shopping list: scheduled/added recipes, ingredients, and additional items.
+    """
+    try:
+        recipes, ingredients, additional = await _get_service().get_shopping_list()
+    except Exception as e:
+        raise ToolError(f"Failed to get shopping list: {e}") from e
+
+    lines = []
+    if recipes:
+        lines.append(f"Recipes in Shopping List ({len(recipes)}):")
+        for r in recipes:
+            lines.append(f"- {r.name} (ID: {r.id} | {r.url})")
+        lines.append("")
+
+    if ingredients:
+        lines.append(f"Ingredients ({len(ingredients)}):")
+        for item in ingredients:
+            check = "[x]" if item.is_owned else "[ ]"
+            desc = f"{item.description}"
+            if item.preparation:
+                desc += f" ({item.preparation})"
+            lines.append(f"- {check} {desc}")
+        lines.append("")
+
+    if additional:
+        lines.append(f"Additional Items ({len(additional)}):")
+        for item in additional:
+            check = "[x]" if item.is_owned else "[ ]"
+            lines.append(f"- {check} {item.name}")
+        lines.append("")
+
+    if not lines:
+        return "Your Cookidoo shopping list is empty."
+    return "\n".join(lines).strip()
+
+
+@mcp.tool(annotations=WRITE)
+async def add_to_shopping_list(recipes: list[str] | str) -> str:
+    """
+    Add recipes to the Cookidoo shopping list by their ID.
+    Supports both catalogue recipe IDs (e.g. 'r55696') and custom recipe IDs (e.g. '01M7D2CG...').
+
+    Args:
+        recipes: Recipe ID or list of recipe IDs (comma- or newline-separated string, or list of strings)
+    """
+    recipe_ids = _lines(recipes) if isinstance(recipes, str) else [r.strip() for r in recipes if r.strip()]
+    if not recipe_ids:
+        raise ToolError("Provide at least one recipe ID to add to the shopping list.")
+    try:
+        added = await _get_service().add_recipes_to_shopping_list(recipe_ids)
+    except Exception as e:
+        raise ToolError(f"Failed to add recipes to shopping list: {e}") from e
+    return (
+        f"Successfully added {len(recipe_ids)} recipe(s) to your Cookidoo shopping list "
+        f"({len(added)} ingredient items added)."
+    )
+
+
+@mcp.tool(annotations={**WRITE, "destructiveHint": True})
+async def remove_from_shopping_list(recipes: list[str] | str) -> str:
+    """
+    Remove recipes from the Cookidoo shopping list by their ID.
+
+    Args:
+        recipes: Recipe ID or list of recipe IDs (comma- or newline-separated string, or list of strings)
+    """
+    recipe_ids = _lines(recipes) if isinstance(recipes, str) else [r.strip() for r in recipes if r.strip()]
+    if not recipe_ids:
+        raise ToolError("Provide at least one recipe ID to remove.")
+    try:
+        await _get_service().remove_recipes_from_shopping_list(recipe_ids)
+    except Exception as e:
+        raise ToolError(f"Failed to remove recipes from shopping list: {e}") from e
+    return f"Removed {len(recipe_ids)} recipe(s) from your Cookidoo shopping list."
+
+
+@mcp.tool(annotations=WRITE)
+async def add_additional_items(items: list[str] | str) -> str:
+    """
+    Add standalone grocery items to the Cookidoo shopping list (e.g. 'milk', 'olive oil', 'paper towels').
+
+    Args:
+        items: Grocery item name or list of items (comma- or newline-separated string, or list of strings)
+    """
+    item_names = _lines(items) if isinstance(items, str) else [i.strip() for i in items if i.strip()]
+    if not item_names:
+        raise ToolError("Provide at least one item name to add.")
+    try:
+        added = await _get_service().add_additional_items(item_names)
+    except Exception as e:
+        raise ToolError(f"Failed to add additional items: {e}") from e
+    return f"Added {len(added)} item(s) to your shopping list: {', '.join(item_names)}."
+
+
+@mcp.tool(annotations={**WRITE, "destructiveHint": True})
+async def clear_shopping_list() -> str:
+    """
+    Clear the entire Cookidoo shopping list (removes all recipes, ingredients and additional items).
+    """
+    try:
+        await _get_service().clear_shopping_list()
+    except Exception as e:
+        raise ToolError(f"Failed to clear shopping list: {e}") from e
+    return "Cookidoo shopping list cleared successfully."
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def get_meal_plan(target_date: str = "") -> str:
+    """
+    Get the scheduled meals and recipes from Cookidoo's 'My Week' meal planner.
+
+    Args:
+        target_date: Optional reference date in YYYY-MM-DD format (defaults to current date/week)
+    """
+    if target_date:
+        try:
+            parsed_date = date.fromisoformat(target_date.strip())
+        except ValueError:
+            raise ToolError(f"Invalid date format '{target_date}'. Please use YYYY-MM-DD.")
+    else:
+        parsed_date = date.today()
+
+    try:
+        week_days = await _get_service().get_calendar_week(parsed_date)
+    except Exception as e:
+        raise ToolError(f"Failed to get meal plan: {e}") from e
+
+    lines = [f"Meal Plan for the week of {parsed_date.isoformat()}:", ""]
+    for day in week_days:
+        lines.append(f"📅 {day.title or day.id}:")
+        if day.recipes:
+            for r in day.recipes:
+                custom_tag = " [Custom]" if r.is_custom else ""
+                time_str = f" ({_minutes(r.total_time)})" if r.total_time else ""
+                lines.append(f"  - {r.name}{custom_tag}{time_str} | ID: {r.id} | {r.url}")
+        else:
+            lines.append("  (No recipes scheduled)")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+@mcp.tool(annotations=WRITE)
+async def schedule_recipe(recipe_id: str, date_str: str) -> str:
+    """
+    Schedule a recipe to a specific date in Cookidoo's 'My Week' planner.
+    Supports both catalogue recipe IDs ('r1234') and custom recipe IDs ('01...').
+
+    Args:
+        recipe_id: The Cookidoo recipe ID (catalogue or custom)
+        date_str: Target date in YYYY-MM-DD format
+    """
+    try:
+        target_date = date.fromisoformat(date_str.strip())
+    except ValueError:
+        raise ToolError(f"Invalid date format '{date_str}'. Please use YYYY-MM-DD.")
+
+    try:
+        await _get_service().schedule_recipe(target_date, recipe_id.strip())
+    except Exception as e:
+        raise ToolError(f"Failed to schedule recipe: {e}") from e
+    return f"Recipe '{recipe_id}' successfully scheduled for {target_date.isoformat()}."
+
+
+@mcp.tool(annotations={**WRITE, "destructiveHint": True})
+async def unschedule_recipe(recipe_id: str, date_str: str) -> str:
+    """
+    Remove a scheduled recipe from a specific date in Cookidoo's 'My Week' planner.
+
+    Args:
+        recipe_id: The Cookidoo recipe ID (catalogue or custom)
+        date_str: Target date in YYYY-MM-DD format
+    """
+    try:
+        target_date = date.fromisoformat(date_str.strip())
+    except ValueError:
+        raise ToolError(f"Invalid date format '{date_str}'. Please use YYYY-MM-DD.")
+
+    try:
+        await _get_service().unschedule_recipe(target_date, recipe_id.strip())
+    except Exception as e:
+        raise ToolError(f"Failed to unschedule recipe: {e}") from e
+    return f"Recipe '{recipe_id}' removed from {target_date.isoformat()}."
 
 
 @mcp.tool(annotations=READ_ONLY)
