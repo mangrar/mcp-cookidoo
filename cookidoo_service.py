@@ -14,7 +14,6 @@ from aiohttp import ClientSession
 from cookidoo_api import (
     Cookidoo,
     CookidooAdditionalItem,
-    CookidooCalendarDay,
     CookidooConfig,
     CookidooCreateCustomRecipe,
     CookidooCustomRecipe,
@@ -25,6 +24,7 @@ from cookidoo_api import (
     CookidooUpdateCustomRecipe,
     ThermomixMachineType,
 )
+from cookidoo_api.types import CookidooCalendarDay
 from cookidoo_api.const import CUSTOM_RECIPES_PATH_ACCEPT
 from cookidoo_api.helpers import (
     cookidoo_custom_recipe_from_json,
