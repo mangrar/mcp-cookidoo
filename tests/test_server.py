@@ -83,7 +83,7 @@ async def test_all_tools_registered():
 
 async def test_server_reports_project_version():
     async with Client(server.mcp) as client:
-        assert client.server_info.version == server.VERSION == "1.2.1"
+        assert client.server_info.version == server.VERSION == "1.2.2"
 
 
 async def test_generate_recipe_structure_round_trips_to_upload(service):

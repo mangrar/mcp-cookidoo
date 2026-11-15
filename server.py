@@ -91,8 +91,15 @@ def _parse_recipe_json(recipe_json: str) -> CustomRecipe:
         raise ToolError(f"Invalid recipe data: {e}") from e
 
 
-def _minutes(seconds: int | None) -> str:
-    return f"{round(seconds / 60)} min" if seconds else "?"
+def _minutes(seconds: int | str | None) -> str:
+    if not seconds:
+        return "?"
+    if isinstance(seconds, str):
+        try:
+            seconds = int(seconds)
+        except ValueError:
+            return seconds
+    return f"{round(seconds / 60)} min"
 
 
 def _strip_markup(text: str) -> str:
@@ -250,7 +257,7 @@ async def add_to_shopping_list(recipes: list[str] | str) -> str:
     Args:
         recipes: Recipe ID or list of recipe IDs (comma- or newline-separated string, or list of strings)
     """
-    recipe_ids = _lines(recipes) if isinstance(recipes, str) else [r.strip() for r in recipes if r.strip()]
+    recipe_ids = _split_list(recipes) if isinstance(recipes, str) else [r.strip() for r in recipes if r.strip()]
     if not recipe_ids:
         raise ToolError("Provide at least one recipe ID to add to the shopping list.")
     try:
@@ -271,7 +278,7 @@ async def remove_from_shopping_list(recipes: list[str] | str) -> str:
     Args:
         recipes: Recipe ID or list of recipe IDs (comma- or newline-separated string, or list of strings)
     """
-    recipe_ids = _lines(recipes) if isinstance(recipes, str) else [r.strip() for r in recipes if r.strip()]
+    recipe_ids = _split_list(recipes) if isinstance(recipes, str) else [r.strip() for r in recipes if r.strip()]
     if not recipe_ids:
         raise ToolError("Provide at least one recipe ID to remove.")
     try:
@@ -289,7 +296,7 @@ async def add_additional_items(items: list[str] | str) -> str:
     Args:
         items: Grocery item name or list of items (comma- or newline-separated string, or list of strings)
     """
-    item_names = _lines(items) if isinstance(items, str) else [i.strip() for i in items if i.strip()]
+    item_names = _split_list(items) if isinstance(items, str) else [i.strip() for i in items if i.strip()]
     if not item_names:
         raise ToolError("Provide at least one item name to add.")
     try:
