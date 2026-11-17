@@ -129,6 +129,7 @@ async def search_recipes(
     max_total_time: int | None = None,
     max_results: int = 10,
     languages: str = "",
+    countries: str = "",
 ) -> str:
     """
     Search the Cookidoo recipe catalogue.
@@ -143,6 +144,7 @@ async def search_recipes(
         max_results: Maximum number of recipes to return (default: 10)
         languages: Language code(s) to filter by, comma-separated (e.g. "es", "en", "es,en").
             Defaults to the account's configured language.
+        countries: Country code(s) to filter by, comma-separated (e.g. "gb", "ie", "es").
     """
     if not (query or ingredients):
         raise ToolError("Provide a query and/or a list of ingredients.")
@@ -153,6 +155,7 @@ async def search_recipes(
             max_total_time=max_total_time,
             max_results=max_results,
             languages=languages or None,
+            countries=countries or None,
         )
     except Exception as e:
         raise ToolError(f"Search failed: {e}") from e

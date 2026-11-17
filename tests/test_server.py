@@ -374,3 +374,8 @@ async def test_get_meal_plan(service):
 async def test_schedule_recipe(service):
     result = await call("schedule_recipe", recipe_id="r12345", date_str="2026-11-16")
     assert "successfully scheduled for 2026-11-16" in result
+
+async def test_search_recipes_with_countries(service):
+    service.search_recipes.return_value = SimpleNamespace(recipes=[])
+    await call("search_recipes", query="stew", countries="gb,ie")
+    assert service.search_recipes.await_args.kwargs["countries"] == "gb,ie"

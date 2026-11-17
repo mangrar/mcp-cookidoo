@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.3] - 2026-11-17
+
+### Added
+- Add `countries` parameter to `search_recipes` tool to filter recipes by regional catalogue (e.g. `gb`, `ie`).
+
 ## [1.1.0] - 2026-10-20
 
 ### Added

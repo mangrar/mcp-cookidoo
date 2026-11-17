@@ -160,6 +160,7 @@ class CookidooService:
         max_total_time: int | None = None,
         max_results: int = 10,
         languages: list[str] | str | None = None,
+        countries: list[str] | str | None = None,
     ) -> CookidooSearchResult:
         """
         Search the Cookidoo catalogue. `max_total_time` is in minutes.
@@ -180,6 +181,12 @@ class CookidooService:
             lang_list = [locale]
 
         params: list[tuple[str, str]] = [("languages", lang) for lang in lang_list]
+        if countries:
+            if isinstance(countries, str):
+                country_list = [c.strip() for c in countries.replace(" ", "").split(",") if c.strip()]
+            else:
+                country_list = [c.strip() for c in countries if c.strip()]
+            params += [("countries", c) for c in country_list]
         if query:
             params.append(("query", query))
         params += [("ingredients", ingredient) for ingredient in ingredients or []]
