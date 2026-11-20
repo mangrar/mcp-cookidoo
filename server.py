@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -212,38 +213,177 @@ async def get_recipe_details(recipe_id: str) -> str:
     return "\n".join(lines)
 
 
+CATEGORIES: list[tuple[str, list[str]]] = [
+    (
+        "🥩 Meat & Poultry",
+        [
+            "beef", "chicken", "pork", "mince", "bacon", "steak", "tenderloin",
+            "sausage", "turkey", "chorizo", "ham", "panceta", "ternera", "pollo", "cerdo",
+        ],
+    ),
+    (
+        "🐟 Fish & Seafood",
+        [
+            "salmon", "cod", "tuna", "shrimp", "prawn", "fish", "trout", "sea bass",
+            "squid", "hake", "bacalao", "merluza", "gulas", "gambas", "langostinos", "pescado",
+        ],
+    ),
+    (
+        "🥦 Produce (Fruit & Vegetables)",
+        [
+            "onion", "carrot", "garlic", "potato", "tomato", "lemon", "cilantro",
+            "parsley", "pepper", "ginger", "mushroom", "lime", "avocado", "celery",
+            "apple", "lettuce", "spinach", "cebolla", "zanahoria", "ajo", "patata",
+            "limon", "pimiento", "champinon", "calabacin", "herbs", "rosemary", "thyme",
+        ],
+    ),
+    (
+        "🧀 Dairy & Eggs",
+        [
+            "egg", "milk", "butter", "cream", "cheese", "parmesan", "yogurt",
+            "cheddar", "mozzarella", "huevo", "leche", "mantequilla", "nata", "queso", "yogur",
+        ],
+    ),
+    (
+        "🥫 Canned Goods & Legumes",
+        [
+            "chickpea", "lentil", "bean", "coconut milk", "garbanzo", "lenteja",
+            "alubia", "tomate triturado", "kidney bean",
+        ],
+    ),
+    (
+        "🌾 Grains, Pasta & Bakery",
+        [
+            "rice", "pasta", "bulgur", "noodles", "flour", "bread", "cornflour",
+            "breadcrumbs", "polenta", "arroz", "harina", "pan", "oats", "spaghetti",
+        ],
+    ),
+    (
+        "🫒 Oils & Condiments",
+        [
+            "olive oil", "oil", "vinegar", "soy sauce", "mustard", "mayonnaise",
+            "stock", "broth", "aceite", "vinagre", "mostaza", "caldo", "sauce",
+        ],
+    ),
+    (
+        "🧂 Spices & Seasonings",
+        [
+            "salt", "pepper", "cumin", "paprika", "oregano", "cinnamon", "sugar",
+            "baking powder", "chilli", "turmeric", "bay leaf", "sal", "pimienta",
+            "comino", "pimenton", "azucar",
+        ],
+    ),
+]
+
+
+def _format_item(item: object) -> str:
+    """Format an ingredient or additional item for display."""
+    check = "[x]" if getattr(item, "is_owned", False) else "[ ]"
+    qty = (getattr(item, "description", "") or "").strip()
+    name = (getattr(item, "name", "") or "").strip()
+    prep = getattr(item, "preparation", None)
+
+    if qty and name:
+        if name.lower() in qty.lower():
+            text = qty
+        else:
+            text = f"{qty} {name}"
+    else:
+        text = qty or name
+
+    if prep:
+        text += f" ({prep})"
+    return f"- {check} {text}"
+
+
+def _categorize(item: object) -> str:
+    name = (getattr(item, "name", "") or getattr(item, "description", "")).lower()
+    for cat_name, keywords in CATEGORIES:
+        for kw in keywords:
+            if kw in name:
+                return cat_name
+    return "🛒 Other / Pantry"
+
+
 @mcp.tool(annotations=READ_ONLY)
-async def get_shopping_list() -> str:
+async def get_shopping_list(
+    group_by: Literal["category", "recipe", "flat"] = "category",
+) -> str:
     """
     Get the current Cookidoo shopping list: scheduled/added recipes, ingredients, and additional items.
+
+    Args:
+        group_by: Grouping mode for ingredients:
+            - 'category': Group items by supermarket department/category (Meat, Fish, Produce, Dairy, etc.)
+            - 'recipe': Group items under each recipe in the shopping list
+            - 'flat': Flat list of all ingredients
     """
     try:
         recipes, ingredients, additional = await _get_service().get_shopping_list()
     except Exception as e:
         raise ToolError(f"Failed to get shopping list: {e}") from e
 
-    lines = []
-    if recipes:
-        lines.append(f"Recipes in Shopping List ({len(recipes)}):")
-        for r in recipes:
-            lines.append(f"- {r.name} (ID: {r.id} | {r.url})")
-        lines.append("")
+    lines: list[str] = []
 
-    if ingredients:
-        lines.append(f"Ingredients ({len(ingredients)}):")
-        for item in ingredients:
-            check = "[x]" if item.is_owned else "[ ]"
-            desc = f"{item.description}"
-            if item.preparation:
-                desc += f" ({item.preparation})"
-            lines.append(f"- {check} {desc}")
-        lines.append("")
+    if group_by == "recipe":
+        if recipes:
+            lines.append(f"Recipes in Shopping List ({len(recipes)}):")
+            for r in recipes:
+                lines.append(f"\n### {r.name} (ID: {r.id} | {r.url})")
+                r_ingredients = getattr(r, "ingredients", None)
+                if r_ingredients:
+                    for item in r_ingredients:
+                        lines.append(_format_item(item))
+                else:
+                    lines.append("  (Ingredients listed in main items)")
+            lines.append("")
+        elif ingredients:
+            lines.append(f"Ingredients ({len(ingredients)}):")
+            for item in ingredients:
+                lines.append(_format_item(item))
+            lines.append("")
+
+    elif group_by == "flat":
+        if recipes:
+            lines.append(f"Recipes in Shopping List ({len(recipes)}):")
+            for r in recipes:
+                lines.append(f"- {r.name} (ID: {r.id} | {r.url})")
+            lines.append("")
+
+        if ingredients:
+            lines.append(f"Ingredients ({len(ingredients)}):")
+            for item in ingredients:
+                lines.append(_format_item(item))
+            lines.append("")
+
+    else:  # default: category
+        if recipes:
+            lines.append(f"Recipes in Shopping List ({len(recipes)}):")
+            for r in recipes:
+                lines.append(f"- {r.name} (ID: {r.id} | {r.url})")
+            lines.append("")
+
+        if ingredients:
+            from collections import defaultdict
+
+            grouped = defaultdict(list)
+            for item in ingredients:
+                cat = _categorize(item)
+                grouped[cat].append(item)
+
+            lines.append(f"Ingredients by Category ({len(ingredients)}):")
+            ordered_cats = [c[0] for c in CATEGORIES] + ["🛒 Other / Pantry"]
+            for cat in ordered_cats:
+                if cat in grouped:
+                    lines.append(f"\n### {cat}")
+                    for item in grouped[cat]:
+                        lines.append(_format_item(item))
+            lines.append("")
 
     if additional:
         lines.append(f"Additional Items ({len(additional)}):")
         for item in additional:
-            check = "[x]" if item.is_owned else "[ ]"
-            lines.append(f"- {check} {item.name}")
+            lines.append(_format_item(item))
         lines.append("")
 
     if not lines:

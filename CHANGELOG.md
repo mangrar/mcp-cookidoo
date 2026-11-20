@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.4] - 2026-11-20
+
+### Added
+- Add `group_by` parameter to `get_shopping_list` tool (`category`, `recipe`, `flat`), defaulting to supermarket category view.
+
+### Fixed
+- Fix missing ingredient name in `get_shopping_list` output by formatting both quantity (`description`) and item name (`name`).
+
 ## [1.2.3] - 2026-11-17
 
 ### Added

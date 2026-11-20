@@ -330,6 +330,36 @@ async def test_get_shopping_list(service):
     assert "500 g patatas" in result
     assert "[ ] 500 g patatas" in result
     assert "[x] Leche" in result
+    assert "Produce (Fruit & Vegetables)" in result
+
+
+async def test_get_shopping_list_group_by_recipe(service):
+    service.get_shopping_list.return_value = (
+        [
+            SimpleNamespace(
+                name="Tortilla",
+                id="r330045",
+                url="https://cookidoo.es/r330045",
+                ingredients=[SimpleNamespace(name="patatas", description="500 g", preparation=None, is_owned=False)],
+            )
+        ],
+        [SimpleNamespace(name="patatas", description="500 g", preparation=None, is_owned=False)],
+        [SimpleNamespace(name="Leche", is_owned=True)],
+    )
+    result = await call("get_shopping_list", group_by="recipe")
+    assert "### Tortilla" in result
+    assert "[ ] 500 g patatas" in result
+
+
+async def test_get_shopping_list_group_by_flat(service):
+    service.get_shopping_list.return_value = (
+        [SimpleNamespace(name="Tortilla", id="r330045", url="https://cookidoo.es/r330045")],
+        [SimpleNamespace(name="patatas", description="500 g", preparation=None, is_owned=False)],
+        [],
+    )
+    result = await call("get_shopping_list", group_by="flat")
+    assert "Ingredients (1):" in result
+    assert "[ ] 500 g patatas" in result
 
 
 async def test_add_to_shopping_list(service):
